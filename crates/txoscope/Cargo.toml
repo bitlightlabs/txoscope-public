@@ -1,0 +1,20 @@
+[package]
+name = "txoscope"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+readme.workspace = true
+description = "High-level application service and public facade for UTXO observation, reconciliation, selection, and reservation"
+
+[lib]
+name = "txoscope"
+path = "src/lib.rs"
+
+[dependencies]
+rand = "0.8"
+txoscope-core.workspace = true
+
+[dev-dependencies]
+txoscope-store-memory.workspace = true

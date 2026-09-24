@@ -1,0 +1,17 @@
+[package]
+name = "txoscope-sim"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+readme.workspace = true
+description = "Simulation, invariant, and metrics helpers for txoscope"
+
+[lib]
+name = "txoscope_sim"
+path = "src/lib.rs"
+
+[dependencies]
+txoscope-core.workspace = true
+txoscope-store-memory.workspace = true

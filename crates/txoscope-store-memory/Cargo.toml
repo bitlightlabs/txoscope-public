@@ -1,0 +1,16 @@
+[package]
+name = "txoscope-store-memory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+readme.workspace = true
+description = "In-memory StateStore backend for tests, examples, and ephemeral usage"
+
+[lib]
+name = "txoscope_store_memory"
+path = "src/lib.rs"
+
+[dependencies]
+txoscope-core.workspace = true

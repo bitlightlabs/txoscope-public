@@ -1,0 +1,20 @@
+[package]
+name = "txoscope-store-sqlite"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+readme.workspace = true
+description = "SQLite StateStore backend with transactional updates and persisted intents"
+
+[lib]
+name = "txoscope_store_sqlite"
+path = "src/lib.rs"
+
+[dependencies]
+rusqlite.workspace = true
+txoscope-core.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

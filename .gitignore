@@ -1,0 +1,21 @@
+/target
+Cargo.lock
+
+# Environment
+.env
+.env.*
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+
+# Editors
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db

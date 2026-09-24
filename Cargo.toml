@@ -1,0 +1,25 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/txoscope-core",
+    "crates/txoscope",
+    "crates/txoscope-store-memory",
+    "crates/txoscope-store-sqlite",
+    "crates/txoscope-sim",
+]
+
+[workspace.package]
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = true
+readme = "README.md"
+repository = "https://github.com/bitlightlabs/txoscope-public"
+
+[workspace.dependencies]
+txoscope-core = { path = "crates/txoscope-core", version = "0.3.0" }
+txoscope = { path = "crates/txoscope", version = "0.3.0" }
+txoscope-store-memory = { path = "crates/txoscope-store-memory", version = "0.3.0" }
+txoscope-store-sqlite = { path = "crates/txoscope-store-sqlite", version = "0.3.0" }
+rusqlite = { version = "0.31", features = ["bundled"] }
+strum = { version = "0.26", features = ["derive"] }
