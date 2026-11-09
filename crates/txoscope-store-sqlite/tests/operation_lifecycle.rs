@@ -1,3 +1,6 @@
+// RATIONALE: Rust integration tests require free test functions; the local helpers
+// share lifecycle setup and assertions across independent store instances.
+
 use txoscope_core::{
 	backend::{
 		BtcSendRequest, LockPurpose, OperationSelection, Orchestrator,
@@ -12,12 +15,11 @@ use txoscope_store_sqlite::SqliteStateStore;
 
 type TestOrchestrator = Orchestrator<SqliteStateStore>;
 
-const FORWARD_PHASES: [OperationPhase; 5] = [
+const FORWARD_PHASES: [OperationPhase; 4] = [
 	OperationPhase::Constructing,
 	OperationPhase::Signed,
 	OperationPhase::Broadcast,
 	OperationPhase::AwaitingConfirmation,
-	OperationPhase::AwaitingL2Finality,
 ];
 
 fn initialize(store: &mut SqliteStateStore) {
@@ -103,7 +105,7 @@ fn assert_phase_state(orch: &TestOrchestrator, phase: OperationPhase) {
 fn assert_in_flight(orch: &TestOrchestrator) {
 	let utxo = orch.get_utxo(&OutPoint::new("input", 0)).unwrap().unwrap();
 	assert_eq!(utxo.onchain_state, OnchainState::SpendingInFlight);
-	assert_eq!(utxo.availability, Availability::BlockedByL2);
+	assert_eq!(utxo.availability, Availability::BlockedBySpend);
 	assert!(!orch.is_outpoint_selectable(&OutPoint::new("input", 0)).unwrap());
 }
 
@@ -169,7 +171,7 @@ fn lagging_and_missing_observations_preserve_bound_and_legacy_in_flight_inputs()
 			let mut store = base_store();
 			let mut utxo = store.get_utxo(&OutPoint::new("input", 0)).unwrap().unwrap();
 			utxo.onchain_state = OnchainState::SpendingInFlight;
-			utxo.availability = Availability::BlockedByL2;
+			utxo.availability = Availability::BlockedBySpend;
 			store.put_utxo(utxo).unwrap();
 			Orchestrator::with_store(store)
 		} else {
@@ -268,17 +270,13 @@ fn observed_spend_removes_ownership_and_later_advancement_cannot_resurrect_input
 		.operation_binding
 		.is_none());
 
-	for phase in [
-		OperationPhase::Broadcast,
-		OperationPhase::AwaitingConfirmation,
-		OperationPhase::AwaitingL2Finality,
-	] {
+	for phase in [OperationPhase::Broadcast, OperationPhase::AwaitingConfirmation] {
 		assert!(orch.complete_operation(&"owner".into(), phase, Vec::new()).unwrap().is_empty());
 		assert_eq!(orch.get_operation(&"owner".into()).unwrap().unwrap().phase, phase);
 		orch.reconcile_snapshot(snapshot(observed())).unwrap();
 		let utxo = orch.get_utxo(&OutPoint::new("input", 0)).unwrap().unwrap();
 		assert_eq!(utxo.onchain_state, OnchainState::Spent);
-		assert_eq!(utxo.availability, Availability::BlockedByL2);
+		assert_eq!(utxo.availability, Availability::BlockedBySpend);
 		assert!(utxo.operation_binding.is_none());
 		assert!(orch.get_lock(&OutPoint::new("input", 0)).unwrap().is_none());
 		assert_rival_rejected(&mut orch);
@@ -470,4 +468,151 @@ fn first_available_preserves_serialized_outpoint_order_for_numeric_vouts() {
 	assert_eq!(selection.selected_outpoints, vec![OutPoint::new("tx", 10)]);
 	assert!(orch.get_lock(&OutPoint::new("tx", 10)).unwrap().is_some());
 	assert!(orch.is_outpoint_selectable(&OutPoint::new("tx", 2)).unwrap());
+}
+
+enum ReleasePath {
+	Explicit,
+	Cleanup,
+}
+
+#[test]
+fn committed_replay_rejects_release_and_cleanup_without_changing_history() {
+	for release in [ReleasePath::Explicit, ReleasePath::Cleanup] {
+		let mut orch = prepare(base_store());
+		let intent = orch.get_intent(&"owner".into()).unwrap().unwrap();
+		match release {
+			ReleasePath::Explicit => {
+				orch.release_operation(&"owner".into()).unwrap();
+			},
+			ReleasePath::Cleanup => {
+				orch.cleanup_stale_reservations(0).unwrap();
+			},
+		}
+
+		let operation = orch.get_operation(&"owner".into()).unwrap();
+		let tick = orch.current_tick().unwrap();
+		let expected = Err(DomainError::InvalidOperationTransition {
+			operation_id: "owner".into(),
+			from: OperationPhase::RollingBack,
+			to: OperationPhase::Selected,
+		});
+
+		assert_eq!(orch.commit_recorded_intent(&"owner".into()), expected);
+		assert_eq!(orch.apply_selection(&intent.selection), expected);
+		assert_eq!(
+			orch.prepare_operation(
+				PlannedSpecificOutpointRequest::new("owner", "btc", OutPoint::new("input", 0))
+					.expires_at(1)
+			),
+			expected.map(|()| intent.selection.clone())
+		);
+
+		assert_eq!(orch.get_intent(&"owner".into()).unwrap(), Some(intent));
+		assert_eq!(orch.get_operation(&"owner".into()).unwrap(), operation);
+		assert_eq!(orch.current_tick().unwrap(), tick);
+		assert!(orch.is_outpoint_selectable(&OutPoint::new("input", 0)).unwrap());
+	}
+}
+
+#[test]
+fn committed_replay_preserves_rival_ownership() {
+	let mut orch = prepare(base_store());
+	let intent = orch.get_intent(&"owner".into()).unwrap().unwrap();
+	orch.release_operation(&"owner".into()).unwrap();
+	orch.prepare_operation(BtcSendRequest::new("rival", "btc", 1)).unwrap();
+	let lock = orch.get_lock(&OutPoint::new("input", 0)).unwrap();
+	let utxo = orch.get_utxo(&OutPoint::new("input", 0)).unwrap();
+
+	assert_eq!(
+		orch.apply_selection(&intent.selection),
+		Err(DomainError::InvalidOperationTransition {
+			operation_id: "owner".into(),
+			from: OperationPhase::RollingBack,
+			to: OperationPhase::Selected,
+		})
+	);
+	assert_eq!(orch.get_lock(&OutPoint::new("input", 0)).unwrap(), lock);
+	assert_eq!(orch.get_utxo(&OutPoint::new("input", 0)).unwrap(), utxo);
+}
+
+#[test]
+fn committed_replay_validates_ownership_in_every_active_phase_without_mutation() {
+	for phase in std::iter::once(OperationPhase::Selected).chain(FORWARD_PHASES) {
+		let mut orch = prepare(base_store());
+		if phase != OperationPhase::Selected {
+			orch.complete_operation(&"owner".into(), phase, vec![OutPoint::new("input", 0)])
+				.unwrap();
+		}
+
+		let operation = orch.get_operation(&"owner".into()).unwrap();
+		let intent = orch.get_intent(&"owner".into()).unwrap().unwrap();
+		let lock = orch.get_lock(&OutPoint::new("input", 0)).unwrap();
+		let utxo = orch.get_utxo(&OutPoint::new("input", 0)).unwrap();
+		let tick = orch.current_tick().unwrap();
+
+		orch.commit_recorded_intent(&"owner".into()).unwrap();
+		orch.apply_selection(&intent.selection).unwrap();
+
+		assert_eq!(orch.get_operation(&"owner".into()).unwrap(), operation);
+		assert_eq!(orch.get_intent(&"owner".into()).unwrap(), Some(intent));
+		assert_eq!(orch.get_lock(&OutPoint::new("input", 0)).unwrap(), lock);
+		assert_eq!(orch.get_utxo(&OutPoint::new("input", 0)).unwrap(), utxo);
+		assert_eq!(orch.current_tick().unwrap(), tick);
+	}
+}
+
+#[test]
+fn committed_replay_rejects_observed_spend_even_while_operation_is_active() {
+	let mut orch = prepare(base_store());
+	orch.reconcile_snapshot(snapshot(observed().spent("spending_tx"))).unwrap();
+	let before = orch.get_utxo(&OutPoint::new("input", 0)).unwrap();
+
+	assert_eq!(
+		orch.commit_recorded_intent(&"owner".into()),
+		Err(DomainError::PlannedInputsMismatch { operation_id: "owner".into() })
+	);
+	assert_eq!(orch.get_utxo(&OutPoint::new("input", 0)).unwrap(), before);
+	assert!(orch.get_lock(&OutPoint::new("input", 0)).unwrap().is_none());
+}
+
+#[test]
+fn committed_replay_rejects_lost_binding_instead_of_reacquiring_input() {
+	let mut store = base_store();
+	reserve_input(&mut store);
+	store.put_utxo(ManagedUtxo::new(OutPoint::new("input", 0), "btc", "scope", 50_000)).unwrap();
+	let mut orch = Orchestrator::with_store(store);
+
+	assert_eq!(
+		orch.commit_recorded_intent(&"owner".into()),
+		Err(DomainError::PlannedInputsMismatch { operation_id: "owner".into() })
+	);
+	assert!(orch
+		.get_utxo(&OutPoint::new("input", 0))
+		.unwrap()
+		.unwrap()
+		.operation_binding
+		.is_none());
+}
+
+#[test]
+fn committed_replay_rejects_partial_input_ownership() {
+	let mut orch = Orchestrator::with_store(base_store());
+	orch.add_utxo(ManagedUtxo::new(OutPoint::new("other", 0), "btc", "scope", 50_000)).unwrap();
+	let selection = orch
+		.prepare_operation(txoscope_core::backend::PlannedExactOutpointsRequest::new(
+			"owner",
+			"btc",
+			vec![OutPoint::new("input", 0), OutPoint::new("other", 0)],
+		))
+		.unwrap();
+	orch.reconcile_snapshot(snapshot(observed().spent("spender"))).unwrap();
+	let remaining_lock = orch.get_lock(&OutPoint::new("other", 0)).unwrap();
+	assert!(remaining_lock.is_some());
+
+	assert_eq!(
+		orch.apply_selection(&selection),
+		Err(DomainError::PlannedInputsMismatch { operation_id: "owner".into() })
+	);
+	assert_eq!(orch.get_lock(&OutPoint::new("other", 0)).unwrap(), remaining_lock);
+	assert!(orch.get_lock(&OutPoint::new("input", 0)).unwrap().is_none());
 }

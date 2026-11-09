@@ -17,4 +17,5 @@ rusqlite.workspace = true
 txoscope-core.workspace = true
 
 [dev-dependencies]
+rusqlite = { workspace = true, features = ["trace"] }
 tempfile = "3"

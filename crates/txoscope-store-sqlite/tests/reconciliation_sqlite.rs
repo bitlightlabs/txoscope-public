@@ -130,7 +130,7 @@ fn spent_utxo_does_not_reopen_when_later_observed_unspent() {
 
 	let persisted = store.get_utxo(&op).unwrap().unwrap();
 	assert_eq!(persisted.onchain_state, OnchainState::Spent);
-	assert_eq!(persisted.availability, Availability::BlockedByL2);
+	assert_eq!(persisted.availability, Availability::BlockedBySpend);
 }
 
 #[test]
@@ -302,7 +302,7 @@ fn spent_reconcile_clears_binding_and_lock_for_reserved_utxo() {
 
 	let spent = store.get_utxo(&op).unwrap().unwrap();
 	assert!(spent.operation_binding.is_none());
-	assert_eq!(spent.availability, Availability::BlockedByL2);
+	assert_eq!(spent.availability, Availability::BlockedBySpend);
 	assert!(store.get_lock(&op).unwrap().is_none());
 }
 
@@ -373,7 +373,7 @@ fn spending_in_flight_unspent_observation_preserves_spending_protection() {
 	let op = OutPoint::new("tx2", 0);
 	let mut utxo = ManagedUtxo::new(op.clone(), "rgb", "scope1", 50_000);
 	utxo.onchain_state = OnchainState::SpendingInFlight;
-	utxo.availability = Availability::BlockedByL2;
+	utxo.availability = Availability::BlockedBySpend;
 	store.put_utxo(utxo).unwrap();
 
 	let snapshot = ObservationSnapshot::new(1_500, ObservationScope::Incremental)
@@ -384,7 +384,7 @@ fn spending_in_flight_unspent_observation_preserves_spending_protection() {
 
 	let restored = store.get_utxo(&op).unwrap().unwrap();
 	assert_eq!(restored.onchain_state, OnchainState::SpendingInFlight);
-	assert_eq!(restored.availability, Availability::BlockedByL2);
+	assert_eq!(restored.availability, Availability::BlockedBySpend);
 }
 
 #[test]

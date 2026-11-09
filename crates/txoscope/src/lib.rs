@@ -350,9 +350,7 @@ impl<S: StateStore, C: Clock, G: ReservationIdGenerator> TxoscopeService<S, C, G
 
 	fn next_manual_reservation(&self, ttl_secs: u64) -> (OperationId, u64) {
 		let now = self.clock.now_utc_unix_secs();
-		// Cap at 7 days: reservations aligned to long-lived commitments (e.g. an RGB receive
-		// invoice's expiry, which defends the blinded UTXO binding) must be able to outlive
-		// the old 1-hour ceiling, or the protection silently lapses before the commitment.
+		// Bound caller-supplied reservation lifetimes to one second through seven days.
 		let expires_at = now.saturating_add(ttl_secs.clamp(1, 7 * 24 * 60 * 60));
 		let reservation_id = self.reservation_ids.generate(now);
 		(reservation_id, expires_at)
@@ -419,8 +417,8 @@ impl<S: StateStore, C: Clock, G: ReservationIdGenerator> TxoscopeService<S, C, G
 	/// When transitioning out of `selected`, the caller must supply the actual
 	/// inputs used to construct the transaction so txoscope can verify they still
 	/// match the planned selection. `Constructing` and `Signed` keep the reservation
-	/// and observed chain state. `Broadcast`, `AwaitingConfirmation`, and
-	/// `AwaitingL2Finality` mark the inputs as spending in flight.
+	/// and observed chain state. `Broadcast` and `AwaitingConfirmation` mark the
+	/// inputs as spending in flight.
 	///
 	/// Locks and bindings remain until a spent observation or explicit cancellation.
 	/// Advancing beyond `Selected` also ends automatic reservation expiry.
@@ -619,7 +617,6 @@ mod tests {
 						capabilities: CapabilitySet::new([
 							Capability::BtcReceive,
 							Capability::FeeSupport,
-							Capability::L2Settlement,
 							Capability::ReserveSupport,
 							Capability::SingleTargetReserve,
 						]),
@@ -647,7 +644,6 @@ mod tests {
 						capabilities: CapabilitySet::new([
 							Capability::BtcReceive,
 							Capability::FeeSupport,
-							Capability::L2Settlement,
 							Capability::ReserveSupport,
 							Capability::SingleTargetReserve,
 						]),
@@ -1472,7 +1468,6 @@ mod tests {
 			OperationPhase::Signed,
 			OperationPhase::Broadcast,
 			OperationPhase::AwaitingConfirmation,
-			OperationPhase::AwaitingL2Finality,
 		] {
 			let mut service = TxoscopeService {
 				orchestrator: service_with_mixed_utxos().orchestrator,

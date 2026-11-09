@@ -22,9 +22,7 @@ pub enum Capability {
 	/// Allows allocation-free inputs to supply bitcoin value in asset selection.
 	FeeSupport,
 	ReserveSupport,
-	#[strum(to_string = "single_target_reserve", serialize = "rgb_receive")]
 	SingleTargetReserve,
-	L2Settlement,
 	ConsolidationSource,
 	ConsolidationTarget,
 }

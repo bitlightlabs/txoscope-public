@@ -1,3 +1,6 @@
+// RATIONALE: Rust integration tests require free test functions; local helpers
+// construct isolated service instances for public API scenarios.
+
 use txoscope::{
 	AccountId, BootstrapAccountConfig, BootstrapConfig, BootstrapScopeConfig, Capability,
 	CapabilitySet, ManagedUtxoInfo, ObservationScope, ObservationSnapshot, ObservedUtxo,
@@ -48,7 +51,6 @@ fn bootstrap_config() -> BootstrapConfig {
 					Capability::BtcReceive,
 					Capability::ReserveSupport,
 					Capability::SingleTargetReserve,
-					Capability::L2Settlement,
 				]),
 			},
 		],
@@ -74,7 +76,6 @@ fn bootstrap_config() -> BootstrapConfig {
 					Capability::BtcReceive,
 					Capability::ReserveSupport,
 					Capability::SingleTargetReserve,
-					Capability::L2Settlement,
 				]),
 				priority: 0,
 			},
@@ -175,11 +176,9 @@ fn broadcast_ownership_ends_on_release_or_spend_without_making_inputs_selectable
 				selected_outpoints: vec![outpoint.clone()],
 			})
 			.unwrap();
-		for phase in [
-			txoscope::OperationPhase::Broadcast,
-			txoscope::OperationPhase::AwaitingConfirmation,
-			txoscope::OperationPhase::AwaitingL2Finality,
-		] {
+		for phase in
+			[txoscope::OperationPhase::Broadcast, txoscope::OperationPhase::AwaitingConfirmation]
+		{
 			service.complete_operation(&operation_id, phase, vec![outpoint.clone()]).unwrap();
 			assert_eq!(service.selected_operation_id_for_outpoint(&outpoint).unwrap(), None);
 			assert_eq!(
@@ -528,7 +527,6 @@ fn unified_utxo_status_tracks_lifecycle_and_remains_read_only() {
 		OperationPhase::Signed,
 		OperationPhase::Broadcast,
 		OperationPhase::AwaitingConfirmation,
-		OperationPhase::AwaitingL2Finality,
 	] {
 		if phase != OperationPhase::Selected {
 			service.complete_operation(&operation_id, phase, vec![outpoint.clone()]).unwrap();
@@ -565,4 +563,39 @@ fn unified_utxo_status_tracks_lifecycle_and_remains_read_only() {
 	let status = service.utxo_status(&outpoint).unwrap().unwrap();
 	assert_eq!(status.onchain_state, OnchainState::Spent);
 	assert!(!status.is_selectable());
+}
+
+#[test]
+fn released_plan_retries_fail_and_preserve_a_rivals_reservation() {
+	let mut service = open_service();
+	let outpoint = parsed_outpoint("tx-rgb-colored:0");
+	let request = txoscope::PlanExactOutpointsRequest {
+		operation_id: "released".into(),
+		target_account_id: "rgb".into(),
+		selected_outpoints: vec![outpoint.clone()],
+	};
+	let planned = service.plan_exact_outpoints(request.clone()).unwrap();
+
+	service.release_operation(&planned.operation_id).unwrap();
+	assert!(service.plan_exact_outpoints(request).is_err());
+	assert!(service.is_outpoint_selectable(&outpoint).unwrap());
+
+	service
+		.plan_exact_outpoints(txoscope::PlanExactOutpointsRequest {
+			operation_id: "rival".into(),
+			target_account_id: "rgb".into(),
+			selected_outpoints: vec![outpoint.clone()],
+		})
+		.unwrap();
+
+	assert!(service
+		.apply_explicit_selection(txoscope::ApplyExplicitSelectionRequest {
+			operation_id: planned.operation_id,
+			selected_outpoints: planned.selected_outpoints,
+			change_scope_id: planned.change_scope_id,
+			expires_at: planned.expires_at,
+		})
+		.is_err());
+
+	assert_eq!(service.owning_operation_id_for_outpoint(&outpoint).unwrap(), Some("rival".into()));
 }

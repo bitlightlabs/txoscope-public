@@ -6,6 +6,13 @@
 //!
 //! Application code should prefer the `txoscope` facade crate.
 //! Store backends and advanced integrations use the [`backend`] module.
+//!
+//! Optional features `serde` and `schema` add serde serialization/deserialization
+//! and utoipa schemas, respectively, for [`OnchainState`], [`Availability`],
+//! [`OperationPhase`], and [`LockPurpose`]. Both use canonical snake_case values;
+//! historical storage aliases are rejected by strum and serde and excluded from schemas.
+//! Schema names match the core type names. Neither feature is enabled by default,
+//! and `schema` can be used independently of `serde`.
 
 mod account;
 mod asset_selection;
@@ -25,6 +32,9 @@ mod state;
 mod store;
 mod utxo;
 mod utxo_status;
+
+#[cfg(test)]
+mod status_vocabulary_tests;
 
 pub use account::Account;
 pub use asset_selection::{AssetCandidate, AssetSelectionConstraints, AssetSelectionPolicy};

@@ -13,8 +13,8 @@ use txoscope_store_sqlite::SqliteStateStore;
 type SqliteOrchestrator = Orchestrator<SqliteStateStore>;
 
 fn temp_store() -> SqliteStateStore {
-	let file = NamedTempFile::new().unwrap();
-	SqliteStateStore::open(file.path()).unwrap()
+	// A NamedTempFile dropped here unlinks the live database before later writes.
+	SqliteStateStore::open_in_memory().unwrap()
 }
 
 fn persistent_store() -> (TempDir, std::path::PathBuf) {

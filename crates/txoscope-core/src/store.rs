@@ -71,6 +71,9 @@ pub trait StateStore: StateRead {
 	fn put_scope(&mut self, scope: WalletScope) -> DomainResult<()>;
 	fn put_utxo(&mut self, utxo: ManagedUtxo) -> DomainResult<()>;
 	fn advance_tick(&mut self, delta: u64) -> DomainResult<()>;
+	/// Atomically binds an operation ID to its complete selection, including across writers.
+	/// An identical retry returns the existing intent without changing its status or timestamps;
+	/// a different selection for the same ID returns `DomainError::IntentConflict`.
 	fn persist_intent(&mut self, selection: OperationSelection) -> DomainResult<OperationIntent>;
 	fn mark_intent_committed(&mut self, operation_id: &OperationId) -> DomainResult<()>;
 	/// Rejects only a pending intent, atomically releasing any applied Selected reservation.
@@ -78,6 +81,9 @@ pub trait StateStore: StateRead {
 	fn mark_intent_failed(&mut self, operation_id: &OperationId) -> DomainResult<()>;
 	/// Validates capabilities and applies all effects atomically against the same state.
 	/// Use `OperationSelection::validate_capabilities` inside the write transaction/snapshot.
+	/// For an identical committed intent, validate current ownership with
+	/// `OperationSelection::validate_committed_reservation` in that same snapshot and
+	/// return without mutation. Released or partially detached reservations must fail.
 	fn apply_batch(&mut self, batch: StateBatch) -> DomainResult<()>;
 	fn apply_reconciliation(&mut self, plan: ReconcilePlan) -> DomainResult<()>;
 	/// Atomically releases only a Selected operation into RollingBack. Returns

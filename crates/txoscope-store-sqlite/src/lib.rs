@@ -4,6 +4,7 @@
 //! transactional updates so a process can recover after restart.
 
 mod codec;
+mod migrations;
 mod sqlite;
 
 pub use sqlite::SqliteStateStore;

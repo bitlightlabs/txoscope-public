@@ -66,6 +66,15 @@ Preview and planning share this policy; simulations can call it directly.
 txoscope can be embedded by wallet, node, RGB node, or other UTXO-based
 applications.
 
+## Status serialization and schemas
+
+The `txoscope-core` dependency has optional `serde` and `schema` features for
+`OnchainState`, `Availability`, `OperationPhase`, and `LockPurpose`. Enable
+`serde` for serialization/deserialization and `schema` for `utoipa::ToSchema`;
+the features are independent and disabled by default. Both use canonical
+snake_case values. Enable these features on `txoscope-core`, not on the
+`txoscope` facade.
+
 ## Workspace
 
 | Crate | Role |
@@ -164,6 +173,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [RELEASING.md](RELEASING.md).
 ## Status
 
 txoscope is currently pre-1.0.
+
+Version 0.3.0 is published; this checkout targets the unreleased 0.4.0 minor
+version. The 0.4.0 API changes and SQLite schema 3-to-4 upgrade are described in
+[MIGRATION.md](MIGRATION.md), including database backup and downgrade limits.
 
 Public APIs and persistence formats may still evolve between minor releases.
 

@@ -31,7 +31,6 @@ pub fn base_store() -> InMemoryStateStore {
 				Capability::SingleTargetReserve,
 				Capability::FeeSupport,
 				Capability::ReserveSupport,
-				Capability::L2Settlement,
 			]),
 		))
 		.unwrap();
@@ -61,7 +60,6 @@ pub fn base_store() -> InMemoryStateStore {
 				Capability::BtcReceive,
 				Capability::SingleTargetReserve,
 				Capability::ReserveSupport,
-				Capability::L2Settlement,
 			]),
 			10,
 		))

@@ -97,7 +97,6 @@ mod tests {
 			(Capability::FeeSupport, "fee_support"),
 			(Capability::ReserveSupport, "reserve_support"),
 			(Capability::SingleTargetReserve, "single_target_reserve"),
-			(Capability::L2Settlement, "l2_settlement"),
 			(Capability::ConsolidationSource, "consolidation_source"),
 			(Capability::ConsolidationTarget, "consolidation_target"),
 		] {
@@ -105,11 +104,8 @@ mod tests {
 			assert_eq!(SqliteCodec::decode::<Capability>(encoded).unwrap(), capability);
 		}
 
-		let capabilities = CapabilitySet::new([
-			Capability::BtcSpend,
-			Capability::SingleTargetReserve,
-			Capability::L2Settlement,
-		]);
+		let capabilities =
+			CapabilitySet::new([Capability::BtcSpend, Capability::SingleTargetReserve]);
 
 		let encoded = SqliteCodec::encode_capabilities(&capabilities);
 		let decoded = SqliteCodec::decode_capabilities(&encoded).unwrap();
@@ -118,11 +114,9 @@ mod tests {
 	}
 
 	#[test]
-	fn capability_codec_preserves_legacy_names() {
-		assert_eq!(
-			SqliteCodec::decode::<Capability>("rgb_receive").unwrap(),
-			Capability::SingleTargetReserve
-		);
+	fn capability_codec_rejects_legacy_names() {
+		assert!(SqliteCodec::decode::<Capability>("rgb_receive").is_err());
+		assert!(SqliteCodec::decode::<Capability>("l2_settlement").is_err());
 	}
 
 	#[test]
@@ -144,7 +138,7 @@ mod tests {
 			(Availability::Reserved, "reserved"),
 			(Availability::Locked, "locked"),
 			(Availability::BlockedByPolicy, "blocked_by_policy"),
-			(Availability::BlockedByL2, "blocked_by_l2"),
+			(Availability::BlockedBySpend, "blocked_by_spend"),
 			(Availability::Recovering, "recovering"),
 		] {
 			assert_eq!(SqliteCodec::encode(value), encoded);
@@ -182,7 +176,6 @@ mod tests {
 			(OperationPhase::Signed, "signed"),
 			(OperationPhase::Broadcast, "broadcast"),
 			(OperationPhase::AwaitingConfirmation, "awaiting_confirmation"),
-			(OperationPhase::AwaitingL2Finality, "awaiting_l2_finality"),
 			(OperationPhase::RollingBack, "rolling_back"),
 		] {
 			assert_eq!(SqliteCodec::encode(value), encoded);
@@ -200,7 +193,7 @@ mod tests {
 	}
 
 	#[test]
-	fn lock_purpose_codec_preserves_legacy_aliases() {
+	fn lock_purpose_codec_rejects_legacy_aliases() {
 		for alias in [
 			"single_target_reserve",
 			"anchor_with_fee_support",
@@ -208,10 +201,7 @@ mod tests {
 			"rgb_l1_send",
 			"channel_funding",
 		] {
-			assert_eq!(
-				SqliteCodec::decode::<LockPurpose>(alias).unwrap(),
-				LockPurpose::PlannedSelection
-			);
+			assert!(SqliteCodec::decode::<LockPurpose>(alias).is_err());
 		}
 	}
 }

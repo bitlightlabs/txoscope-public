@@ -10,6 +10,7 @@ use txoscope_core::{
 };
 
 #[derive(Debug, Default, Clone)]
+#[non_exhaustive]
 pub struct InMemoryStateStore {
 	accounts: HashMap<AccountId, Account>,
 	scopes: HashMap<WalletScopeId, WalletScope>,
@@ -216,6 +217,13 @@ impl StateStore for InMemoryStateStore {
 					operation_id: batch.selection.operation_id,
 				});
 			}
+			if intent.status == IntentStatus::Committed {
+				return intent.selection.validate_committed_reservation(
+					self.get_operation(&batch.selection.operation_id)?,
+					|id| self.get_utxo(id),
+					|id| self.get_lock(id),
+				);
+			}
 		}
 		if let Some(operation) = self.get_operation(&batch.selection.operation_id)? {
 			if operation.phase != batch.phase || operation.phase == OperationPhase::RollingBack {
@@ -248,16 +256,14 @@ impl StateStore for InMemoryStateStore {
 					let utxo = next_utxos
 						.get_mut(&outpoint.to_string())
 						.ok_or_else(|| DomainError::UtxoNotFound(outpoint.clone()))?;
-					let already_applied = utxo.operation_binding.as_ref().is_some_and(|binding| {
-						binding.operation_id == batch.selection.operation_id
-							&& binding.phase == batch.phase
-					}) && next_locks
-						.get(&outpoint.to_string())
-						.is_some_and(|lock| lock.operation_id == batch.selection.operation_id);
-					if already_applied {
-						let lock = next_locks
-							.get(&outpoint.to_string())
-							.expect("existing lock checked above");
+					let applied_lock = next_locks.get(&outpoint.to_string()).filter(|lock| {
+						lock.operation_id == batch.selection.operation_id
+							&& utxo.operation_binding.as_ref().is_some_and(|binding| {
+								binding.operation_id == batch.selection.operation_id
+									&& binding.phase == batch.phase
+							})
+					});
+					if let Some(lock) = applied_lock {
 						if lock.purpose != *purpose
 							|| lock.expires_at != batch.selection.expires_at
 							|| lock.account_id != utxo.account_id

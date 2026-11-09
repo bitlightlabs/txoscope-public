@@ -4,7 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The project follows [Semantic Versioning](https://semver.org/). See [VERSIONING.md](./VERSIONING.md) for the workspace policy.
 
-## Unreleased — 0.3.0
+## Unreleased — 0.4.0
+
+- Run SQLite upgrades through an ordered, transactional migration registry. Roll back schema, data and version changes together on failure; serialize concurrent openers, validate all store tables, and reject unsupported or unversioned populated databases before schema writes.
+- Add independent, opt-in `serde` and `schema` features to `txoscope-core` for `OnchainState`, `Availability`, `OperationPhase`, and `LockPurpose`. Serialization and OpenAPI schemas use canonical snake_case values; default features remain empty.
+- **Breaking API and wire changes:** replace `Availability::BlockedByL2` (`blocked_by_l2`) with `BlockedBySpend` (`blocked_by_spend`); remove `OperationPhase::AwaitingL2Finality` and `Capability::L2Settlement`. Core parsing no longer accepts the historical `rgb_receive` capability alias or protocol-specific lock-purpose aliases. Asset selection algorithms and constraints remain unchanged.
+- **Breaking persistence change:** migrate SQLite schema 3 to 4, translating supported historical phases, availability, capabilities, and lock purposes in one transaction. Reject ambiguous spend state and inconsistent active ownership without changing the database; preserve pending and failed intents without active ownership, including invalid selections recorded before admission. Spent and in-flight inputs remain unavailable after release, restart, and lagging observations. Older binaries cannot open schema 4; downgrade requires a compatible pre-upgrade backup. See [MIGRATION.md](MIGRATION.md).
+
+## 0.3.0
 
 - Expose the pure `AssetSelectionPolicy`, eligible `AssetCandidate` facts and `AssetSelectionConstraints` in core. Preview and planning delegate to the policy; simulations exercise it without service dependencies. Existing `txoscope::SelectionConstraints` remains a re-export, preserving source compatibility and persistence formats.
 - Distinguish entirely excluded asset candidates from insufficient eligible balances, returning per-input rejection diagnostics and specific errors for exact inputs.

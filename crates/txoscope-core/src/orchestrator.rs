@@ -216,6 +216,9 @@ impl<S: StateStore> Orchestrator<S> {
 		self.store.persist_intent(selection)
 	}
 
+	/// Commits pending intent effects or validates current ownership for a committed retry.
+	/// A committed receipt alone is insufficient after release or observed input detachment.
+	/// Successful retries preserve the current phase, timestamps, and locks.
 	pub fn commit_recorded_intent(&mut self, operation_id: &OperationId) -> DomainResult<()> {
 		let intent = self
 			.store
@@ -223,7 +226,13 @@ impl<S: StateStore> Orchestrator<S> {
 			.ok_or_else(|| DomainError::IntentNotFound(operation_id.clone()))?;
 
 		match intent.status {
-			IntentStatus::Committed => return Ok(()),
+			IntentStatus::Committed => {
+				return self.store.apply_batch(StateBatch {
+					selection: intent.selection,
+					phase: OperationPhase::Selected,
+					owner: self.owner.clone(),
+				});
+			},
 			IntentStatus::Failed => {
 				return Err(DomainError::IntentNotPending(operation_id.clone()))
 			},
@@ -356,7 +365,6 @@ impl<S: StateStore> Orchestrator<S> {
 				| OperationPhase::Signed
 				| OperationPhase::Broadcast
 				| OperationPhase::AwaitingConfirmation
-				| OperationPhase::AwaitingL2Finality
 		) {
 			return Err(DomainError::InvalidOperationTransition {
 				operation_id: operation_id.clone(),

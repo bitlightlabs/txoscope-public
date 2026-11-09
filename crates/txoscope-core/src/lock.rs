@@ -2,19 +2,16 @@ use crate::{AccountId, Capability, CapabilitySet, OperationId, WalletScopeId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::EnumString, strum::IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
+#[cfg_attr(test, derive(strum::EnumIter))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schema", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "schema", schema(rename_all = "snake_case"))]
 pub enum LockPurpose {
 	ManualReservation,
 	BtcSend,
 	/// A planned allocation-free input supplying bitcoin fees.
 	FeeSupport,
-	#[strum(
-		to_string = "planned_selection",
-		serialize = "single_target_reserve",
-		serialize = "anchor_with_fee_support",
-		serialize = "rgb_receive_preparation",
-		serialize = "rgb_l1_send",
-		serialize = "channel_funding"
-	)]
 	PlannedSelection,
 }
 

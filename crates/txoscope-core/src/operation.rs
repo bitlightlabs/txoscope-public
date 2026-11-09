@@ -1,8 +1,9 @@
 use std::collections::BTreeSet;
 
 use crate::{
-	lock::LockPurpose, Account, AccountId, CapabilitySet, DomainError, DomainResult, ManagedUtxo,
-	OperationId, OutPoint, WalletScope, WalletScopeId,
+	lock::{LockPurpose, OperationLock},
+	Account, AccountId, CapabilitySet, DomainError, DomainResult, ManagedUtxo, OperationId,
+	OutPoint, WalletScope, WalletScopeId,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,13 +64,17 @@ impl SelectionLockPolicy {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::EnumString, strum::IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
+#[cfg_attr(test, derive(strum::EnumIter))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schema", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "schema", schema(rename_all = "snake_case"))]
 pub enum OperationPhase {
 	Selected,
 	Constructing,
 	Signed,
 	Broadcast,
 	AwaitingConfirmation,
-	AwaitingL2Finality,
 	RollingBack,
 }
 
@@ -110,22 +115,15 @@ impl PersistedOperation {
 					| OperationPhase::Signed
 					| OperationPhase::Broadcast
 					| OperationPhase::AwaitingConfirmation
-					| OperationPhase::AwaitingL2Finality
 			) | (
 				OperationPhase::Constructing,
 				OperationPhase::Signed
 					| OperationPhase::Broadcast
 					| OperationPhase::AwaitingConfirmation
-					| OperationPhase::AwaitingL2Finality
 			) | (
 				OperationPhase::Signed,
-				OperationPhase::Broadcast
-					| OperationPhase::AwaitingConfirmation
-					| OperationPhase::AwaitingL2Finality
-			) | (
-				OperationPhase::Broadcast,
-				OperationPhase::AwaitingConfirmation | OperationPhase::AwaitingL2Finality
-			) | (OperationPhase::AwaitingConfirmation, OperationPhase::AwaitingL2Finality)
+				OperationPhase::Broadcast | OperationPhase::AwaitingConfirmation
+			) | (OperationPhase::Broadcast, OperationPhase::AwaitingConfirmation)
 		);
 		if !valid_transition {
 			return Err(DomainError::InvalidOperationTransition {
@@ -201,6 +199,63 @@ pub enum SelectionEffect {
 }
 
 impl OperationSelection {
+	/// Validates a committed retry against current ownership without applying effects.
+	/// Backends must read the operation, inputs, and locks from one consistent snapshot.
+	/// Forward phases remain idempotent while every selected input is still owned.
+	pub fn validate_committed_reservation(
+		&self, operation: Option<PersistedOperation>,
+		get_utxo: impl Fn(&OutPoint) -> DomainResult<Option<ManagedUtxo>>,
+		get_lock: impl Fn(&OutPoint) -> DomainResult<Option<OperationLock>>,
+	) -> DomainResult<()> {
+		let operation =
+			operation.ok_or_else(|| DomainError::OperationNotFound(self.operation_id.clone()))?;
+		if operation.phase == OperationPhase::RollingBack {
+			return Err(DomainError::InvalidOperationTransition {
+				operation_id: self.operation_id.clone(),
+				from: operation.phase,
+				to: OperationPhase::Selected,
+			});
+		}
+
+		for outpoint in &self.selected_outpoints {
+			let utxo =
+				get_utxo(outpoint)?.ok_or_else(|| DomainError::UtxoNotFound(outpoint.clone()))?;
+			let lock = get_lock(outpoint)?;
+
+			let binding_matches = utxo.operation_binding.as_ref().is_some_and(|binding| {
+				binding.operation_id == self.operation_id && binding.phase == operation.phase
+			});
+			let lock_matches = lock.as_ref().is_some_and(|lock| {
+				lock.operation_id == self.operation_id
+					&& lock.account_id == utxo.account_id
+					&& lock.scope_id == utxo.scope_id
+					&& lock.expires_at == operation.expires_at
+					&& self.effects.iter().any(|effect| {
+						matches!(
+							effect,
+							SelectionEffect::LockUtxo { outpoint: locked, purpose }
+								if locked == outpoint && *purpose == lock.purpose
+						)
+					})
+			});
+
+			if !binding_matches || !lock_matches {
+				return Err(DomainError::PlannedInputsMismatch {
+					operation_id: self.operation_id.clone(),
+				});
+			}
+
+			if utxo.observation_conflict.is_some() {
+				return Err(DomainError::ObservationConflict {
+					outpoint: outpoint.clone(),
+					onchain_state: utxo.onchain_state,
+				});
+			}
+		}
+
+		Ok(())
+	}
+
 	/// Validates selection structure and the current account/scope capabilities.
 	/// Store backends must bind all readers to the same snapshot as their atomic write.
 	pub fn validate_capabilities(

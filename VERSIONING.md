@@ -3,9 +3,16 @@
 `txoscope` follows [Semantic Versioning](https://semver.org/). All workspace crates
 share `workspace.package.version` and are released together under one tag.
 
-The workspace is currently pre-1.0. Version 0.2.0 was released on 2026-09-23.
+The workspace is currently pre-1.0. Version 0.3.0 has been released; development
+targets the unreleased 0.4.0 minor version. The ordered migration runner is an
+internal implementation change; it does not by itself determine the release
+version. This release also includes breaking public enum/serialized-value
+changes and the SQLite schema 3-to-4 data migration. Those API and persistence
+changes require the 0.4.0 minor release under the pre-1.0 policy below.
 Breaking API and persistence changes may be collected into an upcoming minor
-version; each preparation PR does not require a separate version bump.
+version; each preparation PR does not require a separate version bump. Further
+changes in this unreleased line therefore keep all workspace crates and internal
+dependency requirements at 0.4.0.
 
 ## Compatibility axes
 

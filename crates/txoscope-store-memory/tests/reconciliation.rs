@@ -105,7 +105,7 @@ fn spent_utxo_does_not_reopen_when_later_observed_unspent() {
 
 	let persisted = store.get_utxo(&op).unwrap().unwrap();
 	assert_eq!(persisted.onchain_state, OnchainState::Spent);
-	assert_eq!(persisted.availability, Availability::BlockedByL2);
+	assert_eq!(persisted.availability, Availability::BlockedBySpend);
 }
 
 #[test]
@@ -245,7 +245,7 @@ fn spent_reconcile_clears_binding_and_lock_for_reserved_utxo() {
 
 	let utxo = store.get_utxo(&op).unwrap().unwrap();
 	assert!(utxo.operation_binding.is_none());
-	assert_eq!(utxo.availability, Availability::BlockedByL2);
+	assert_eq!(utxo.availability, Availability::BlockedBySpend);
 	assert!(store.get_lock(&op).unwrap().is_none());
 }
 

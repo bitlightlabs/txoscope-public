@@ -110,7 +110,7 @@ impl ManagedUtxo {
 
 	pub fn mark_spent(&mut self) {
 		self.onchain_state = OnchainState::Spent;
-		self.availability = Availability::BlockedByL2;
+		self.availability = Availability::BlockedBySpend;
 		self.operation_binding = None;
 	}
 
@@ -120,7 +120,7 @@ impl ManagedUtxo {
 
 	pub fn release_binding(&mut self) {
 		if matches!(self.onchain_state, OnchainState::Spent | OnchainState::SpendingInFlight) {
-			self.availability = Availability::BlockedByL2;
+			self.availability = Availability::BlockedBySpend;
 		} else if self.availability != Availability::Recovering {
 			self.availability = if self.onchain_state == OnchainState::Confirmed
 				&& self.observation_conflict.is_none()
@@ -141,16 +141,11 @@ impl ManagedUtxo {
 			return;
 		};
 		binding.phase = phase;
-		if matches!(
-			phase,
-			OperationPhase::Broadcast
-				| OperationPhase::AwaitingConfirmation
-				| OperationPhase::AwaitingL2Finality
-		) {
+		if matches!(phase, OperationPhase::Broadcast | OperationPhase::AwaitingConfirmation) {
 			if self.onchain_state != OnchainState::Spent {
 				self.onchain_state = OnchainState::SpendingInFlight;
 			}
-			self.availability = Availability::BlockedByL2;
+			self.availability = Availability::BlockedBySpend;
 		}
 	}
 }
@@ -229,7 +224,7 @@ mod tests {
 
 		utxo.mark_spent();
 		assert_eq!(utxo.onchain_state, OnchainState::Spent);
-		assert_eq!(utxo.availability, Availability::BlockedByL2);
+		assert_eq!(utxo.availability, Availability::BlockedBySpend);
 		assert!(utxo.operation_binding.is_none());
 	}
 
@@ -272,13 +267,13 @@ mod tests {
 		}
 		utxo.advance_binding(OperationPhase::Broadcast);
 		assert_eq!(utxo.onchain_state, OnchainState::SpendingInFlight);
-		assert_eq!(utxo.availability, Availability::BlockedByL2);
+		assert_eq!(utxo.availability, Availability::BlockedBySpend);
 		assert_eq!(utxo.operation_binding.as_ref().unwrap().phase, OperationPhase::Broadcast);
 
 		utxo.mark_spent();
 		utxo.advance_binding(OperationPhase::AwaitingConfirmation);
 		assert_eq!(utxo.onchain_state, OnchainState::Spent);
-		assert_eq!(utxo.availability, Availability::BlockedByL2);
+		assert_eq!(utxo.availability, Availability::BlockedBySpend);
 		assert!(utxo.operation_binding.is_none());
 	}
 }

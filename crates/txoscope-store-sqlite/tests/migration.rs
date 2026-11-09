@@ -10,7 +10,7 @@ use txoscope_core::{
 use txoscope_store_sqlite::SqliteStateStore;
 
 #[test]
-fn sqlite_v1_to_v3_migration_preserves_legacy_capabilities() {
+fn sqlite_v1_to_v4_migration_preserves_capability_meaning() {
 	let temp_dir = tempfile::tempdir().unwrap();
 	let db_path = temp_dir.path().join("test.db");
 
@@ -91,7 +91,7 @@ fn sqlite_v1_to_v3_migration_preserves_legacy_capabilities() {
 	let conn = Connection::open(&db_path).unwrap();
 	let current_version: i64 =
 		conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
-	assert_eq!(current_version, 3);
+	assert_eq!(current_version, 4);
 
 	let table_info: Vec<String> = conn
 		.prepare("PRAGMA table_info(utxos)")
@@ -162,10 +162,11 @@ fn normalized_schema(conn: &Connection) -> String {
 			|row| row.get(0),
 		)
 		.unwrap();
-	schema.split_whitespace().collect::<Vec<_>>().join(" ")
+	// ALTER TABLE and CREATE TABLE render punctuation whitespace differently.
+	schema.split_whitespace().collect::<Vec<_>>().join(" ").replace(" ,", ",").replace(" )", ")")
 }
 
-fn assert_raw_identifiers(conn: &Connection) {
+fn assert_raw_identifiers(conn: &Connection, version: u32) {
 	for (table, column, expected) in [
 		("accounts", "account_id", LEGACY_ACCOUNT),
 		("scopes", "scope_id", LEGACY_SCOPE),
@@ -210,7 +211,7 @@ fn assert_raw_identifiers(conn: &Connection) {
 	assert_eq!(vout, (u32::MAX, "integer".into()));
 	assert_eq!(
 		conn.pragma_query_value::<u32, _>(None, "user_version", |row| row.get(0)).unwrap(),
-		3
+		version
 	);
 	let integrity: String = conn.query_row("PRAGMA integrity_check", [], |row| row.get(0)).unwrap();
 	assert_eq!(integrity, "ok");
@@ -237,7 +238,7 @@ fn frozen_v3_database_reads_typed_identifiers_without_schema_or_value_changes() 
 	let conn = Connection::open(&path).unwrap();
 	conn.execute_batch(LEGACY_V3).unwrap();
 	let schema = normalized_schema(&conn);
-	assert_raw_identifiers(&conn);
+	assert_raw_identifiers(&conn, 3);
 	drop(conn);
 
 	let account_id = AccountId::from(LEGACY_ACCOUNT);
@@ -313,7 +314,7 @@ fn frozen_v3_database_reads_typed_identifiers_without_schema_or_value_changes() 
 
 		let conn = Connection::open(&path).unwrap();
 		assert_eq!(normalized_schema(&conn), schema);
-		assert_raw_identifiers(&conn);
+		assert_raw_identifiers(&conn, 4);
 		let tick: String = conn
 			.query_row("SELECT value FROM meta WHERE key = 'tick'", [], |row| row.get(0))
 			.unwrap();
@@ -372,14 +373,14 @@ fn typed_identifier_writes_keep_the_legacy_text_format_and_schema() {
 	reference.execute_batch(LEGACY_V3).unwrap();
 	let conn = Connection::open(&path).unwrap();
 	assert_eq!(normalized_schema(&conn), normalized_schema(&reference));
-	assert_raw_identifiers(&conn);
+	assert_raw_identifiers(&conn, 4);
 	drop(conn);
 
 	let reopened = SqliteStateStore::open(&path).unwrap();
 	assert_eq!(reopened.get_intent(&operation_id).unwrap().unwrap().selection, selection);
 	assert_eq!(reopened.get_lock(&legacy_outpoint()).unwrap().unwrap().operation_id, operation_id);
 	drop(reopened);
-	assert_raw_identifiers(&Connection::open(&path).unwrap());
+	assert_raw_identifiers(&Connection::open(&path).unwrap(), 4);
 }
 
 #[test]
@@ -442,8 +443,9 @@ fn persisted_utxo_keys_must_be_canonical_and_match_their_components() {
 		let path = directory.path().join("corrupt-utxo.sqlite");
 		let conn = Connection::open(&path).unwrap();
 		conn.execute_batch(LEGACY_V3).unwrap();
-		conn.execute(&format!("UPDATE utxos SET {column} = ?1"), [value]).unwrap();
+		// Corruption introduced after upgrade must still be rejected by readers.
 		let store = SqliteStateStore::open(&path).unwrap();
+		conn.execute(&format!("UPDATE utxos SET {column} = ?1"), [value]).unwrap();
 		assert!(
 			matches!(store.list_utxos(), Err(DomainError::CorruptedState(_))),
 			"{column}: {value}"

@@ -67,8 +67,8 @@ impl<'a> ReconciliationPlanner<'a> {
 		// Unspent observations can lag a local broadcast. This also protects
 		// legacy in-flight rows whose operation binding was already removed.
 		if managed.onchain_state == OnchainState::SpendingInFlight {
-			return (managed.availability != Availability::BlockedByL2)
-				.then_some(Availability::BlockedByL2);
+			return (managed.availability != Availability::BlockedBySpend)
+				.then_some(Availability::BlockedBySpend);
 		}
 		if managed.operation_binding.is_some() {
 			return (managed.availability == Availability::Recovering)

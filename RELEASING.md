@@ -1,6 +1,9 @@
-# Publishing 0.3.0
+# Publishing
 
-All five crates enable publishing and share version 0.3.0. Internal dependencies
+Version 0.3.0 has been published. The current development line targets 0.4.0;
+the checks below prepare a future release and do not publish it.
+
+All five crates enable publishing and share `workspace.package.version`. Internal dependencies
 specify both path and version: development uses the checkout and published
 packages resolve their dependencies from the registry. Each package includes
 the workspace README and both license texts.
